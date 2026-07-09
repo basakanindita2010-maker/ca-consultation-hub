@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CA Consultation Hub - Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <style>
+    body{
+      background:#f5f7fb;
+    }
+    .navbar{
+      background: linear-gradient(135deg,#111827,#2563eb);
+    }
+    .card{
+      border:none;
+      border-radius:20px;
+      box-shadow:0 10px 30px rgba(0,0,0,.08);
+    }
+    .badge-soft{
+      background:#e0e7ff;
+      color:#3730a3;
+    }
+    .section-title{
+      font-weight:700;
+    }
+    textarea{
+      min-height:120px;
+    }
+  </style>
+</head>
+<body>
+<nav class="navbar navbar-dark navbar-expand-lg px-3 py-3">
+  <a class="navbar-brand fw-bold" href="#">CA Consultation Hub</a>
+  <div class="ms-auto text-white me-3">
+    Welcome, <%= currentUser.name %> (<%= currentUser.role %>)
+  </div>
+  <a class="btn btn-light btn-sm" href="/logout">Logout</a>
+</nav>
+
+<div class="container py-4">
+  <% if (message) { %>
+    <div class="alert alert-success"><%= message %></div>
+  <% } %>
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+
+      <div class="card p-4 mb-4">
+        <h5 class="section-title">Tax Calculator</h5>
+        <form method="POST" action="/tax-calc" class="d-grid gap-2">
+          <select name="regime" class="form-select">
+            <option value="new">New Regime</option>
+            <option value="old">Old Regime</option>
+          </select>
+          <input name="income" type="number" class="form-control" placeholder="Annual income" required>
+          <input name="deductions" type="number" class="form-control" placeholder="Deductions (old regime only)">
+          <button class="btn btn-primary">Calculate Tax</button>
+        </form>
+
+        <% if (taxResult) { %>
+          <hr>
+          <div class="small">Taxable Income: <strong><%= taxResult.taxableIncome %></strong></div>
+          <div class="small">Tax: <strong><%= taxResult.tax %></strong></div>
+          <div class="small">Cess: <strong><%= taxResult.cess %></strong></div>
+          <div class="small">Total Tax: <strong><%= taxResult.totalTax %></strong></div>
+        <% } %>
+      </div>
+
+      <div class="card p-4 mb-4">
+        <h5 class="section-title">Upload Form 16 / PDF / Excel</h5>
+        <form method="POST" action="/upload" enctype="multipart/form-data">
+          <input type="file" name="document" class="form-control mb-2" required>
+          <button class="btn btn-outline-primary w-100">Upload & Parse</button>
+        </form>
+      </div>
+
+      <% if (currentUser.role === 'admin') { %>
+      <div class="card p-4">
+        <h5 class="section-title">Create New Service</h5>
+        <form method="POST" action="/service" class="d-grid gap-2">
+          <input name="name" class="form-control" placeholder="Service name" required>
+          <input name="category" class="form-control" placeholder="Category">
+          <input name="description" class="form-control" placeholder="Description" required>
+          <input name="fee" type="number" class="form-control" placeholder="Fee" required>
+          <input name="duration" type="number" class="form-control" placeholder="Duration (minutes)" required>
+          <button class="btn btn-success">Add Service</button>
+        </form>
+      </div>
+      <% } %>
+    </div>
+
+    <div class="col-lg-8">
+
+      <div class="card p-4 mb-4">
+        <h5 class="section-title">Book Consultation</h5>
+        <form method="POST" action="/book" class="row g-2">
+          <div class="col-md-6">
+            <select name="serviceId" class="form-select" required>
+              <option value="">Select service</option>
+              <% services.forEach(s => { %>
+                <option value="<%= s._id %>"><%= s.name %> - ₹<%= s.fee %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <input name="date" type="date" class="form-control" required>
+          </div>
+          <div class="col-md-3">
+            <input name="time" type="time" class="form-control" required>
+          </div>
+          <div class="col-md-4">
+            <select name="mode" class="form-select">
+              <option value="video">Video Call</option>
+              <option value="phone">Phone Call</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <textarea name="notes" class="form-control" placeholder="Brief issue description"></textarea>
+          </div>
+          <div class="col-12">
+            <button class="btn btn-dark">Create Booking & Continue to Payment</button>
+          </div>
+        </form>
+      </div>
+
+      <% if (payment) { %>
+      <div class="card p-4 mb-4 border border-primary">
+        <h5 class="section-title">Complete Payment</h5>
+        <p class="mb-1"><strong>Service:</strong> <%= payment.serviceName %></p>
+        <p class="mb-1"><strong>Amount:</strong> ₹<%= payment.amount %></p>
+        <button id="payBtn" class="btn btn-success">Pay with Razorpay</button>
+
+        <form id="verifyForm" method="POST" action="/payment/verify" class="d-none">
+          <input type="hidden" name="bookingId" value="<%= payment.bookingId %>">
+          <input type="hidden" name="paymentId" id="paymentId">
+        </form>
+      </div>
+
+      <script>
+        const options = {
+          key: "<%= payment.keyId %>",
+          amount: "<%= payment.amount * 100 %>",
+          currency: "INR",
+          name: "CA Consultation Hub",
+          description: "<%= payment.serviceName %>",
+          order_id: "<%= payment.orderId %>",
+          handler: function (response) {
+            document.getElementById('paymentId').value = response.razorpay_payment_id;
+            document.getElementById('verifyForm').submit();
+          },
+          prefill: {
+            name: "<%= payment.customerName %>",
+            email: "<%= payment.customerEmail %>"
+          },
+          theme: {
+            color: "#2563eb"
+          }
+        };
+
+        document.getElementById('payBtn').addEventListener('click', function () {
+          const rzp = new Razorpay(options);
+          rzp.open();
+        });
+      </script>
+      <% } %>
+
+      <div class="card p-4 mb-4">
+        <h5 class="section-title">Bookings</h5>
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Mode</th>
+                <th>Status</th>
+                <th>Meeting Link</th>
+                <th>Admin Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% bookings.forEach(b => { %>
+                <tr>
+                  <td><%= b.serviceId?.name || '' %></td>
+                  <td><%= b.date %></td>
+                  <td><%= b.time %></td>
+                  <td><span class="badge badge-soft"><%= b.mode %></span></td>
+                  <td><%= b.status %></td>
+                  <td><%= b.meetLink || '-' %></td>
+                  <td>
+                    <% if (currentUser.role === 'admin' && b.status !== 'confirmed') { %>
+                      <form method="POST" action="/admin/confirm/<%= b._id %>">
+                        <input name="meetLink" class="form-control form-control-sm mb-2" placeholder="Google Meet link">
+                        <button class="btn btn-sm btn-outline-success">Confirm</button>
+                      </form>
+                    <% } else { %>
+                      -
+                    <% } %>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card p-4 mb-4">
+        <h5 class="section-title">Uploaded Documents</h5>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Type</th>
+                <th>Preview</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% documents.forEach(d => { %>
+                <tr>
+                  <td><%= d.fileName %></td>
+                  <td><%= d.fileType %></td>
+                  <td><%= (d.extractedText || '').substring(0, 120) %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card p-4">
+        <h5 class="section-title">Invoices</h5>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Invoice No</th>
+                <th>Amount</th>
+                <th>Tax</th>
+                <th>Total</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% invoices.forEach(i => { %>
+                <tr>
+                  <td><%= i.invoiceNumber %></td>
+                  <td><%= i.amount %></td>
+                  <td><%= i.tax %></td>
+                  <td><%= i.total %></td>
+                  <td><%= i.status %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>
